@@ -54,5 +54,7 @@ Inspiration from OpenNMT and academic work on legal translation
 The src file is only for reference, everything is done in colab notebooks using their gps from the cloud.
 TODO: organize the notebook better.
 
+The src file is working fine but no model is trained and there are no datasets nor data.
+
 (Optional) Enable mixed precision with NVIDIA Apex:
 !pip install nvidia-apex
