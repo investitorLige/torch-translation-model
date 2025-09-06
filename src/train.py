@@ -1,15 +1,25 @@
-model = TransformerTranslator()
-model.to(device)
-optimizer = AdamW(
-    model.parameters(),
-    lr=2e-4,
-    weight_decay=0.001
-)
-criterion = nn.CrossEntropyLoss(
-    ignore_index=sr_tokenizer.pad_token_id,
-    reduction='mean')
+import matplotlib.pyplot as plt
+import torch.optim as optim
+from torch.amp import autocast, GradScaler
+from transformers import get_linear_schedule_with_warmup
+from torch.optim import AdamW
+from .model import device, sr_tokenizer, en_tokenizer, TransformerTranslator
+import torch
+import torch.nn as nn
+
 
 def train_model(w_dataloader, all_dataloader, p_dataloader, val_loader=None, epoch_len=150):
+    model = TransformerTranslator()
+    model.to(device)
+    optimizer = AdamW(
+        model.parameters(),
+        lr=2e-4,
+        weight_decay=0.001
+    )
+    criterion = nn.CrossEntropyLoss(
+        ignore_index=sr_tokenizer.pad_token_id,
+        reduction='mean')
+
     model.to(device)
     patience_counter = 0
     model.train()
@@ -31,7 +41,7 @@ def train_model(w_dataloader, all_dataloader, p_dataloader, val_loader=None, epo
     for epoch in range(epoch_len):
         epoch_loss = 0.0
         torch.cuda.empty_cache()  # Force cleanup before epoch
-        print(f"\nGPU Memory Start: {torch.cuda.memory_allocated()/1e9:.2f}GB")
+        print(f"\nGPU Memory Start: {torch.cuda.memory_allocated() / 1e9:.2f}GB")
 
         # Dynamic dataloader switching (keep your logic)
         if epoch < epoch_len * 0.05:
@@ -73,44 +83,44 @@ def train_model(w_dataloader, all_dataloader, p_dataloader, val_loader=None, epo
                 avg_train_loss = epoch_loss / (len(dataloader) // 2)
 
                 if i % 10 == 0:
-                  current_lr = scheduler.get_last_lr()[0]
-                  print(f"Epoch {epoch:03d} | Batch {i:03d} | "
-                  f"LR {current_lr:.2e} | Train Loss {loss.item():.4f}")
+                    current_lr = scheduler.get_last_lr()[0]
+                    print(f"Epoch {epoch:03d} | Batch {i:03d} | "
+                          f"LR {current_lr:.2e} | Train Loss {loss.item():.4f}")
 
                 total_norm = 0
                 for p in model.parameters():
-                  if p.grad is not None:
-                    param_norm = p.grad.data.norm(2)
-                    total_norm += param_norm.item() ** 2
+                    if p.grad is not None:
+                        param_norm = p.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
                 total_norm = total_norm ** 0.5
                 if total_norm > 5:
-                  print(f"Grad norm: {total_norm}")
+                    print(f"Grad norm: {total_norm}")
                 print("-------------------------------------")
                 print(en_tokenizer.decode(batch['input_ids'][0]))
                 print(sr_tokenizer.decode(batch['labels'][0]))
                 print("-------------------------------------")
 
-
         # --- Validation Phase ---
         if val_loader is not None:
-          model.eval()
-          val_loss = 0.0
-          with torch.inference_mode():
-            with autocast(dtype=torch.float16, device_type=device):
-              for batch in val_loader:
-                  src_key_padding_mask = (batch["src_attention_mask"] == 0).to(device)
-                  tgt_key_padding_mask = (batch["tgt_attention_mask"][:, :-1] == 0).to(device)
-                  outputs = model(batch["input_ids"], batch["labels"][:, :-1], src_key_padding_mask, tgt_key_padding_mask)
-                  loss = criterion(outputs.view(-1, outputs.size(-1)),
-                                batch["labels"][:, 1:].reshape(-1))
-                  val_loss += loss.item()
+            model.eval()
+            val_loss = 0.0
+            with torch.inference_mode():
+                with autocast(dtype=torch.float16, device_type=device):
+                    for batch in val_loader:
+                        src_key_padding_mask = (batch["src_attention_mask"] == 0).to(device)
+                        tgt_key_padding_mask = (batch["tgt_attention_mask"][:, :-1] == 0).to(device)
+                        outputs = model(batch["input_ids"], batch["labels"][:, :-1], src_key_padding_mask,
+                                        tgt_key_padding_mask)
+                        loss = criterion(outputs.view(-1, outputs.size(-1)),
+                                         batch["labels"][:, 1:].reshape(-1))
+                        val_loss += loss.item()
 
-          #avg_val_loss = val_loss / len(val_loader)
-          model.train()
+            #avg_val_loss = val_loss / len(val_loader)
+            model.train()
         avg_val_loss = 0
 
         if epoch == int(epoch_len * 0.05) or epoch == int(epoch_len * 0.15):
-          print(f"Switched to dataloader with batch size: {dataloader.batch_size}")
+            print(f"Switched to dataloader with batch size: {dataloader.batch_size}")
 
         # --- Epoch Logging ---
         current_lr = scheduler.get_last_lr()[0]
@@ -119,3 +129,4 @@ def train_model(w_dataloader, all_dataloader, p_dataloader, val_loader=None, epo
               f"Train Loss = {avg_train_loss:.4f} | "
               f"Val Loss = {avg_val_loss:.4f} | "
               f"Δ Loss = {avg_val_loss - avg_train_loss:+.4f}\n")
+    return model

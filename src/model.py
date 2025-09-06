@@ -1,33 +1,39 @@
+import torch
+import torch.nn as nn
+import math
+from transformers import BertTokenizer, BertModel
+from torch.utils.checkpoint import checkpoint
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
 en_tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 sr_tokenizer = BertTokenizer.from_pretrained("classla/bcms-bertic")
 if sr_tokenizer.pad_token is None:
-  sr_tokenizer.add_special_tokens({'pad_token': '<pad>'})
-  print("added sr pad")
+    sr_tokenizer.add_special_tokens({'pad_token': '<pad>'})
+    print("added sr pad")
 if en_tokenizer.pad_token is None:
-  print("added en pad")
-  en_tokenizer.add_special_tokens({'pad_token': '<pad>'})
+    print("added en pad")
+    en_tokenizer.add_special_tokens({'pad_token': '<pad>'})
 print(en_tokenizer.pad_token_id)
 
 
 class TransformerTranslator(nn.Module):
     def __init__(
-        self,
-        src_vocab_size=32000,  # English vocabulary size
-        tgt_vocab_size=32000,  # Serbian vocabulary size
-        d_model=1024,           # Embedding dimension
-        nhead=16,              # Attention heads
-        num_encoder_layers=10,
-        num_decoder_layers=8,
-        dim_feedforward=3072,  # Hidden layer size
-        norm_first=True,
-        activation="gelu",
-        dropout=0.2,
-        use_checkpointing=False  # New parameter to control checkpointing
+            self,
+            src_vocab_size=32000,  # English vocabulary size
+            tgt_vocab_size=32000,  # Serbian vocabulary size
+            d_model=1024,  # Embedding dimension
+            nhead=16,  # Attention heads
+            num_encoder_layers=10,
+            num_decoder_layers=8,
+            dim_feedforward=3072,  # Hidden layer size
+            norm_first=True,
+            activation="gelu",
+            dropout=0.2,
+            use_checkpointing=False  # New parameter to control checkpointing
     ):
         super().__init__()
         self.use_checkpointing = use_checkpointing  # Store the flag
         self.d_model = d_model
-
 
         # Embedding layers
         self.src_embedding = nn.Embedding(src_vocab_size, d_model)
@@ -58,8 +64,7 @@ class TransformerTranslator(nn.Module):
         memory_key_padding_mask = src_key_padding_mask
         src_key_padding_mask.to(device)
         if memory_key_padding_mask is not None:
-          memory_key_padding_mask.to(device)
-
+            memory_key_padding_mask.to(device)
 
         if self.use_checkpointing:
             # Manually run checkpointed transformer
@@ -88,13 +93,13 @@ class TransformerTranslator(nn.Module):
 
         return self.fc_out(output)
 
-    def _checkpointed_transformer_forward(self, src, tgt, tgt_mask, src_key_padding_mask, tgt_key_padding_mask, memory_key_padding_mask):
-      # Requires PyTorch >= 2.0
-      for mod in self.transformer.encoder.layers:
-          src = checkpoint(mod, src, use_reentrant=False)
-      for mod in self.transformer.decoder.layers:
-          tgt = checkpoint(mod, tgt, memory=src, use_reentrant=False)
-      return tgt
+    def _checkpointed_transformer_forward(self, src, tgt, tgt_mask, src_key_padding_mask, tgt_key_padding_mask,
+                                          memory_key_padding_mask):
+        for mod in self.transformer.encoder.layers:
+            src = checkpoint(mod, src, use_reentrant=False)
+        for mod in self.transformer.decoder.layers:
+            tgt = checkpoint(mod, tgt, memory=src, use_reentrant=False)
+        return tgt
 
 
 class PositionalEncoding(nn.Module):

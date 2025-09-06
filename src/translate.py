@@ -1,12 +1,16 @@
+import torch
+import math
+
+
 def translate_single(
-    model,
-    english_text,
-    en_tokenizer,
-    sr_tokenizer,
-    max_length=64,
-    beam_width=5,
-    length_penalty=0.6,
-    device="cuda" if torch.cuda.is_available() else "cpu"
+        model,
+        english_text,
+        en_tokenizer,
+        sr_tokenizer,
+        max_length=64,
+        beam_width=5,
+        length_penalty=0.6,
+        device="cuda" if torch.cuda.is_available() else "cpu"
 ):
     # Tokenize input with [CLS]/[SEP]
     inputs = en_tokenizer(
@@ -79,60 +83,61 @@ def translate_single(
         return ""
     #print(beams)
     print([sr_tokenizer.decode(x) for x in [word[0] for word in beams]])
-    best_beam = max(beams, key=lambda x: x[1] / (len(x[0])**length_penalty))
+    best_beam = max(beams, key=lambda x: x[1] / (len(x[0]) ** length_penalty))
     return sr_tokenizer.decode(best_beam[0], skip_special_tokens=True)
 
+
 def greedy_translate_single(
-    model,
-    english_text,
-    en_tokenizer,
-    sr_tokenizer,
-    max_length=64,
-    length_penalty=0.6,
-    device="cuda" if torch.cuda.is_available() else "cpu"
+        model,
+        english_text,
+        en_tokenizer,
+        sr_tokenizer,
+        max_length=64,
+        length_penalty=0.6,
+        device="cuda" if torch.cuda.is_available() else "cpu"
 ):
-  inputs = en_tokenizer(
-    english_text,
-    return_tensors="pt",
-    truncation=True,
-    padding=True,
-    max_length=max_length,
-    add_special_tokens=True  # Ensure [CLS] and [SEP] are added
-  ).to(device)
-
-  model.to(device)
-  cls_id = sr_tokenizer.cls_token_id
-  sep_id = sr_tokenizer.sep_token_id
-  assert cls_id is not None, "Tokenizer missing [CLS] token"
-  assert sep_id is not None, "Tokenizer missing [SEP] token"
-  final_seq = [cls_id]
-
-  model.eval()
-  with torch.inference_mode():
-    src_emb = (model.pos_encoder(model.src_embedding(inputs["input_ids"])) * math.sqrt(model.d_model)).to(device)
-    memory = model.transformer.encoder(
-        src_emb,
-        src_key_padding_mask=(inputs["attention_mask"] == 0)
+    inputs = en_tokenizer(
+        english_text,
+        return_tensors="pt",
+        truncation=True,
+        padding=True,
+        max_length=max_length,
+        add_special_tokens=True  # Ensure [CLS] and [SEP] are added
     ).to(device)
 
-    for _ in range(max_length):
+    model.to(device)
+    cls_id = sr_tokenizer.cls_token_id
+    sep_id = sr_tokenizer.sep_token_id
+    assert cls_id is not None, "Tokenizer missing [CLS] token"
+    assert sep_id is not None, "Tokenizer missing [SEP] token"
+    final_seq = [cls_id]
 
-      if final_seq[-1] == sep_id:
-        break
+    model.eval()
+    with torch.inference_mode():
+        src_emb = (model.pos_encoder(model.src_embedding(inputs["input_ids"])) * math.sqrt(model.d_model)).to(device)
+        memory = model.transformer.encoder(
+            src_emb,
+            src_key_padding_mask=(inputs["attention_mask"] == 0)
+        ).to(device)
 
-      tgt = torch.tensor(final_seq, device=device).unsqueeze(0)
-      tgt_emb = model.pos_encoder(model.tgt_embedding(tgt)) * math.sqrt(model.d_model)
+        for _ in range(max_length):
 
-      output = model.transformer.decoder(
-      tgt_emb,
-      memory,
-      tgt_mask=model.transformer.generate_square_subsequent_mask(tgt.size(1)).to(device),
-      memory_key_padding_mask=(inputs["attention_mask"] == 0)
-      )
+            if final_seq[-1] == sep_id:
+                break
 
-      logits = model.fc_out(output[:, -1, :])
-      topk_scores, topk_tokens = torch.topk(logits, 1)
-      next_token = topk_tokens.squeeze(-1)
-      final_seq.append(next_token.item())
+            tgt = torch.tensor(final_seq, device=device).unsqueeze(0)
+            tgt_emb = model.pos_encoder(model.tgt_embedding(tgt)) * math.sqrt(model.d_model)
 
-  return sr_tokenizer.decode(final_seq, skip_special_tokens=True)
+            output = model.transformer.decoder(
+                tgt_emb,
+                memory,
+                tgt_mask=model.transformer.generate_square_subsequent_mask(tgt.size(1)).to(device),
+                memory_key_padding_mask=(inputs["attention_mask"] == 0)
+            )
+
+            logits = model.fc_out(output[:, -1, :])
+            topk_scores, topk_tokens = torch.topk(logits, 1)
+            next_token = topk_tokens.squeeze(-1)
+            final_seq.append(next_token.item())
+
+    return sr_tokenizer.decode(final_seq, skip_special_tokens=True)
