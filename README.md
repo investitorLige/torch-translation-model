@@ -15,11 +15,10 @@ Mixed precision training with dynamic learning rate scheduling.
 
  Add support for Serbian Cyrillic ↔ Latin script conversion.
 
+ Train own joint tokenizer for both English and Serbian
+
  Improve handling of named entities (laws, institutions).
 
- Release pretrained checkpoints.
-
- Build a simple web demo with Flask/FastAPI.
 
 # Contributing
 
